@@ -40,6 +40,7 @@ app.add_middleware(
         "https://reel2-meal.vercel.app",
         *_extra,
     ],
+    allow_origin_regex=r"https://.*\.vercel\.app",  # Allow all Vercel preview URLs
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
