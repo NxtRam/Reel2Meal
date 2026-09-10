@@ -15,7 +15,18 @@ def _make_engine():
             future=True,
         )
     # PostgreSQL (production/staging)
-    return create_async_engine(url, echo=False, future=True)
+    # pool_pre_ping: test connection before use (handles Neon idle disconnects)
+    # pool_recycle: recycle connections every 5 min before Neon closes them
+    # pool_size / max_overflow: keep connections lean on free tier
+    return create_async_engine(
+        url,
+        echo=False,
+        future=True,
+        pool_pre_ping=True,
+        pool_recycle=300,       # recycle every 5 minutes
+        pool_size=5,
+        max_overflow=10,
+    )
 
 
 engine = _make_engine()
