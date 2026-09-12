@@ -12,6 +12,7 @@ from app.database import Base
 class OrderStatus(str, PyEnum):
     pending = "pending"
     confirmed = "confirmed"
+    delivering = "delivering"
     cancelled = "cancelled"
 
 

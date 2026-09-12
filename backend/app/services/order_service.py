@@ -3,12 +3,25 @@ import uuid
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.food_item import FoodItem
 from app.models.order import Order
 from app.models.reel import Reel
+from app.models.restaurant import Restaurant
 from app.models.user import User
 from app.schemas.order import OrderCreate, OrderOut, OrderStatusUpdate
+
+
+def _order_to_out(order: Order) -> OrderOut:
+    """Convert an Order ORM object to OrderOut, injecting restaurant location."""
+    data = OrderOut.model_validate(order)
+    if order.restaurant_id and hasattr(order, '_restaurant') and order._restaurant:
+        r = order._restaurant
+        data.restaurant_lat = float(r.latitude) if r.latitude else None
+        data.restaurant_lng = float(r.longitude) if r.longitude else None
+        data.restaurant_name = r.name
+    return data
 
 
 async def place_order(db: AsyncSession, data: OrderCreate, user: User) -> OrderOut:
@@ -55,7 +68,15 @@ async def place_order(db: AsyncSession, data: OrderCreate, user: User) -> OrderO
     db.add(order)
     await db.commit()
     await db.refresh(order)
-    return OrderOut.model_validate(order)
+
+    # Load restaurant for location data
+    if order.restaurant_id:
+        rest_result = await db.execute(select(Restaurant).where(Restaurant.id == order.restaurant_id))
+        order._restaurant = rest_result.scalar_one_or_none()
+    else:
+        order._restaurant = None
+
+    return _order_to_out(order)
 
 
 async def list_user_orders(db: AsyncSession, user: User) -> list[OrderOut]:
@@ -65,7 +86,20 @@ async def list_user_orders(db: AsyncSession, user: User) -> list[OrderOut]:
         .where(Order.user_id == user.id)
         .order_by(Order.created_at.desc())
     )
-    return [OrderOut.model_validate(o) for o in result.scalars().all()]
+    orders = result.scalars().all()
+
+    # Batch load restaurants
+    rest_ids = {o.restaurant_id for o in orders if o.restaurant_id}
+    rest_map = {}
+    if rest_ids:
+        rr = await db.execute(select(Restaurant).where(Restaurant.id.in_(rest_ids)))
+        rest_map = {r.id: r for r in rr.scalars().all()}
+
+    out = []
+    for o in orders:
+        o._restaurant = rest_map.get(o.restaurant_id)
+        out.append(_order_to_out(o))
+    return out
 
 
 async def get_order(db: AsyncSession, order_id: uuid.UUID, user: User) -> OrderOut:
@@ -108,7 +142,17 @@ async def list_restaurant_orders(db: AsyncSession, user: User) -> list[OrderOut]
         .where(Order.restaurant_id == user.restaurant_id)
         .order_by(Order.created_at.desc())
     )
-    return [OrderOut.model_validate(o) for o in result.scalars().all()]
+    orders = result.scalars().all()
+
+    # Load this restaurant once
+    rest_result = await db.execute(select(Restaurant).where(Restaurant.id == user.restaurant_id))
+    restaurant = rest_result.scalar_one_or_none()
+
+    out = []
+    for o in orders:
+        o._restaurant = restaurant
+        out.append(_order_to_out(o))
+    return out
 
 
 async def update_order_status(
@@ -135,4 +179,12 @@ async def update_order_status(
     order.status = new_status
     await db.commit()
     await db.refresh(order)
-    return OrderOut.model_validate(order)
+
+    # Load restaurant
+    if order.restaurant_id:
+        rest_result = await db.execute(select(Restaurant).where(Restaurant.id == order.restaurant_id))
+        order._restaurant = rest_result.scalar_one_or_none()
+    else:
+        order._restaurant = None
+
+    return _order_to_out(order)

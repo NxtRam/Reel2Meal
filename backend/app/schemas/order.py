@@ -28,9 +28,13 @@ class OrderOut(BaseModel):
     razorpay_order_id: str | None
     razorpay_payment_id: str | None
     created_at: datetime
+    # Restaurant location for delivery map
+    restaurant_lat: float | None = None
+    restaurant_lng: float | None = None
+    restaurant_name: str | None = None
 
     model_config = {"from_attributes": True}
 
 
 class OrderStatusUpdate(BaseModel):
-    status: str = Field(..., pattern="^(pending|confirmed|cancelled)$")
+    status: str = Field(..., pattern="^(pending|confirmed|delivering|cancelled)$")

@@ -2,12 +2,14 @@ import { useState, useEffect } from 'react'
 import { ordersApi } from '../api/ordersApi'
 import { useAuth } from '../hooks/useAuth'
 import Spinner from '../components/shared/Spinner'
+import DeliveryMapModal from '../components/feed/DeliveryMapModal'
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 const ORDER_STATUS = {
-  confirmed: { label: 'Confirmed', color: 'text-green-400 bg-green-500/15 border-green-500/30', dot: 'bg-green-400', icon: '✅' },
-  pending:   { label: 'Pending',   color: 'text-yellow-400 bg-yellow-500/15 border-yellow-500/30', dot: 'bg-yellow-400', icon: '⏳' },
-  cancelled: { label: 'Cancelled', color: 'text-red-400 bg-red-500/15 border-red-500/30', dot: 'bg-red-400', icon: '❌' },
+  confirmed:  { label: 'Confirmed',  color: 'text-green-400 bg-green-500/15 border-green-500/30',   dot: 'bg-green-400',   icon: '✅' },
+  pending:    { label: 'Pending',    color: 'text-yellow-400 bg-yellow-500/15 border-yellow-500/30', dot: 'bg-yellow-400',  icon: '⏳' },
+  delivering: { label: 'Delivering', color: 'text-orange-400 bg-orange-500/15 border-orange-500/30', dot: 'bg-orange-400',  icon: '🛵' },
+  cancelled:  { label: 'Cancelled',  color: 'text-red-400 bg-red-500/15 border-red-500/30',         dot: 'bg-red-400',     icon: '❌' },
 }
 
 const PAYMENT_STATUS = {
@@ -25,7 +27,7 @@ function timeAgo(dateStr) {
 }
 
 // ─── Customer Order Card ──────────────────────────────────────────────────────
-function CustomerOrderCard({ order, onCancel, cancelling }) {
+function CustomerOrderCard({ order, onCancel, cancelling, onTrack }) {
   const os = ORDER_STATUS[order.status] ?? ORDER_STATUS.pending
   const ps = PAYMENT_STATUS[order.payment_status] ?? PAYMENT_STATUS.unpaid
 
@@ -76,6 +78,18 @@ function CustomerOrderCard({ order, onCancel, cancelling }) {
           <p className="mt-2 text-white/40 text-xs italic border-t border-white/8 pt-2">
             "{order.note}"
           </p>
+        )}
+
+        {/* Track delivery button — shown when delivering or confirmed */}
+        {(order.status === 'delivering' || order.status === 'confirmed') && (
+          <button
+            id={`track-order-${order.id}`}
+            onClick={() => onTrack(order)}
+            className="mt-3 w-full flex items-center justify-center gap-2 text-xs font-bold text-orange-300 border border-orange-500/40 bg-orange-500/10 px-3 py-2 rounded-xl hover:bg-orange-500/20 transition-colors"
+          >
+            <span className="text-base">🗺️</span>
+            {order.status === 'delivering' ? 'Track Live Delivery' : 'Preview Delivery Route'}
+          </button>
         )}
 
         {order.status === 'pending' && (
@@ -147,7 +161,7 @@ function RestaurantOrderCard({ order, onUpdateStatus, updating }) {
           </p>
         )}
 
-        {/* Action buttons — only show for pending orders */}
+        {/* Action buttons — only show for pending/confirmed orders */}
         {order.status === 'pending' && (
           <div className="flex gap-2 mt-1">
             <button
@@ -167,6 +181,16 @@ function RestaurantOrderCard({ order, onUpdateStatus, updating }) {
               {isUpdating ? '…' : '✕ Reject'}
             </button>
           </div>
+        )}
+        {order.status === 'confirmed' && (
+          <button
+            id={`deliver-order-${order.id}`}
+            onClick={() => onUpdateStatus(order.id, 'delivering')}
+            disabled={isUpdating}
+            className="mt-1 w-full flex items-center justify-center gap-2 text-xs font-bold text-orange-300 border border-orange-500/40 bg-orange-500/10 px-3 py-2 rounded-xl hover:bg-orange-500/20 transition-colors disabled:opacity-50"
+          >
+            {isUpdating ? '…' : '🛵 Mark as Delivering'}
+          </button>
         )}
       </div>
     </div>
@@ -204,11 +228,12 @@ export default function OrdersPage() {
   const { user } = useAuth()
   const isRestaurant = user?.role === 'restaurant'
 
-  const [orders, setOrders] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [cancelling, setCancelling] = useState(null) // customer cancel
-  const [updating, setUpdating] = useState(null)     // restaurant update status
-  const [filter, setFilter] = useState('all')
+  const [orders,    setOrders]    = useState([])
+  const [loading,   setLoading]   = useState(true)
+  const [cancelling,setCancelling]= useState(null)
+  const [updating,  setUpdating]  = useState(null)
+  const [filter,    setFilter]    = useState('all')
+  const [trackOrder,setTrackOrder]= useState(null)   // order being tracked on map
 
   const load = () => {
     setLoading(true)
@@ -247,7 +272,7 @@ export default function OrdersPage() {
     }
   }
 
-  const FILTERS = ['all', 'pending', 'confirmed', 'cancelled']
+  const FILTERS = ['all', 'pending', 'confirmed', 'delivering', 'cancelled']
   const filtered = filter === 'all' ? orders : orders.filter((o) => o.status === filter)
 
   const emptyMessage = isRestaurant
@@ -259,6 +284,11 @@ export default function OrdersPage() {
 
   return (
     <div className="min-h-screen bg-surface pt-14 px-4">
+      {/* Delivery Map Modal */}
+      {trackOrder && (
+        <DeliveryMapModal order={trackOrder} onClose={() => setTrackOrder(null)} />
+      )}
+
       <div className="max-w-lg mx-auto py-8">
 
         {/* Title */}
@@ -341,6 +371,7 @@ export default function OrdersPage() {
                       order={order}
                       onCancel={handleCancel}
                       cancelling={cancelling}
+                      onTrack={setTrackOrder}
                     />
                   )
                 )
